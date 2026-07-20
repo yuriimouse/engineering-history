@@ -1,0 +1,335 @@
+diff --git a/RECONSTRUCTION.md b/RECONSTRUCTION.md
+new file mode 100644
+index 0000000..818f6d8
+--- /dev/null
++++ b/RECONSTRUCTION.md
+@@ -0,0 +1,22 @@
++# Reconstruction rules
++
++This repository records a gradual reconstruction of engineering projects from memory.
++
++## Evidence levels
++
++Each technical statement should be treated as one of:
++
++- **Confirmed memory** — remembered clearly by the original author.
++- **Probable reconstruction** — consistent with the remembered design, but not yet confirmed.
++- **Open question** — a detail that remains uncertain.
++- **Documentary evidence** — supported by surviving code, diagrams, photographs, documents, or hardware.
++
++Do not silently replace an earlier recollection when memory changes. Record the correction and explain what changed.
++
++## Working method
++
++1. Raw recollections go to `vault/inbox.md`.
++2. Unresolved details go to `vault/questions.md`.
++3. Dates and milestones go to `vault/timeline.md`.
++4. Confirmed material is gradually incorporated into project documents.
++5. Editorial text must distinguish remembered facts from later interpretation.
+diff --git a/projects/school-network/dos-driver.md b/projects/school-network/dos-driver.md
+new file mode 100644
+index 0000000..3f0769e
+--- /dev/null
++++ b/projects/school-network/dos-driver.md
+@@ -0,0 +1,29 @@
++# DOS driver
++
++**Implementation:** assembly language  
++**Primary interface:** DOS INT 21h  
++**Evidence status:** architectural mechanism confirmed; intercepted function list incomplete.
++
++## Purpose
++
++Client machines had no hard disk. They booted base DOS and the custom driver from floppy.
++
++The driver intercepted DOS file-service requests through INT 21h and redirected relevant operations through the network to the teacher/server machine. To DOS applications, the remote resource appeared to behave like ordinary disk storage.
++
++Using the DOS service layer avoided requiring application changes and allowed the implementation to work with file and directory semantics rather than emulate a physical disk controller at the BIOS sector level.
++
++## Interrupt constraint
++
++The network adapter had no meaningful buffering. An incoming byte caused an interrupt that could not safely be missed.
++
++Accordingly, assembly-language critical sections were bounded using instruction clock counts. Interrupts could not remain disabled merely until a convenient high-level operation completed.
++
++## Boot environment
++
++The floppy contained:
++
++- base DOS;
++- the network driver;
++- several additional utilities presented as ordinary DOS commands.
++
++The exact DOS version used in the first 1990 installation remains uncertain. DOS 6.22 may describe a later operational version rather than the original deployment.
+diff --git a/projects/school-network/hardware.md b/projects/school-network/hardware.md
+new file mode 100644
+index 0000000..6e8d2f9
+--- /dev/null
++++ b/projects/school-network/hardware.md
+@@ -0,0 +1,19 @@
++# Hardware and physical network
++
++**Evidence status:** partly confirmed memory; component identities remain open questions.
++
++## Confirmed recollection
++
++A custom adapter was designed around inexpensive serial hardware and a programmable 4-bit controller. The network used coaxial cable and supported runs of up to approximately 100 metres.
++
++The adapter had effectively no receive memory. The DOS-side interrupt handler therefore had to service incoming data before the next byte displaced it or was otherwise lost.
++
++## Real-time consequence
++
++The assembly code could not leave interrupts disabled for an unbounded or merely approximate duration. Critical paths were analysed instruction by instruction using known processor clock counts.
++
++This was not general performance tuning. It was a correctness requirement imposed by the absence of buffering in the adapter.
++
++## Open details
++
++The exact serial controller, programmable controller, electrical signalling, bitrate, termination, and adapter circuit remain to be reconstructed.
+diff --git a/projects/school-network/overview.md b/projects/school-network/overview.md
+new file mode 100644
+index 0000000..a5fc465
+--- /dev/null
++++ b/projects/school-network/overview.md
+@@ -0,0 +1,43 @@
++# Diskless school computer network
++
++**Period:** 1989–1990 and later deployments  
++**Status:** reconstruction in progress
++
++## Problem
++
++At the end of the 1980s, schools were receiving IBM PC/XT-class computers with 640 KB of RAM, one floppy drive, and no hard disk. Schools nevertheless needed usable computer classrooms.
++
++Commercial networking products did not solve the central problem. They were costly, required unavailable hardware, and generally assumed more capable client machines.
++
++The project therefore started from the available equipment rather than from an existing network product.
++
++## System concept
++
++One teacher machine, an XT or AT 286 with a hard disk, supplied shared storage and services. Diskless student XT machines booted a small DOS environment from floppy and loaded a custom assembly-language network driver.
++
++The driver intercepted DOS file services through INT 21h and exposed remote storage in a form ordinary DOS applications could use without modification.
++
++The system included:
++
++- a custom coaxial physical network;
++- compact node addressing and command encoding;
++- token-based medium access with token recovery;
++- remote DOS file services;
++- read-only system storage;
++- a public file-exchange area;
++- private storage attached to user identity rather than workstation identity;
++- login and first-use password creation.
++
++## Architectural significance
++
++The design treated the computer as a replaceable access point and the student as the persistent entity. A student could use another workstation and still receive the same private storage.
++
++The architecture was derived from constraints:
++
++- no local hard disks led to centralised storage;
++- expensive or unsuitable network products led to a custom adapter and protocol;
++- minimal adapter memory led to interrupt-driven processing with strictly bounded critical sections;
++- scarce bandwidth led to bit-packed commands and optional extension bytes;
++- interchangeable workstations led to user-centred private storage.
++
++This document records the overall model. Detailed protocol, hardware, DOS, and user-management reconstruction is kept in separate files.
+diff --git a/projects/school-network/protocol.md b/projects/school-network/protocol.md
+new file mode 100644
+index 0000000..4978733
+--- /dev/null
++++ b/projects/school-network/protocol.md
+@@ -0,0 +1,53 @@
++# Network protocol
++
++**Evidence status:** core structure remembered; field semantics and command table incomplete.
++
++## Command byte
++
++The first byte combined node addressing and command selection:
++
++```text
++7               3 2             0
+++----------------+---------------+
++| node address   | command       |
++| 5 bits         | 3 bits        |
+++----------------+---------------+
++```
++
++The five high bits identified the hardware node. Address zero was used for a general or broadcast command. The three low bits selected one of eight command codes.
++
++A command definition determined whether an extension byte followed.
++
++## Extension byte
++
++For commands requiring block parameters, a second byte was divided into two nibbles:
++
++```text
++7             4 3             0
+++---------------+---------------+
++| chunk field   | count field   |
++| 4 bits        | 4 bits        |
+++---------------+---------------+
++```
++
++One field encoded chunk size and the other encoded the number of chunks. Their exact order and value mapping remain to be confirmed.
++
++This format allowed simple operations to remain one byte long while block transfers gained compact length information only when required.
++
++## Token ownership
++
++Only the node holding the token could initiate read, write, or token-transfer operations.
++
++At startup, or after apparent token loss, a node listened to the network. If no traffic arrived during the listening interval, it could broadcast an announcement equivalent to:
++
++> Token is mine.
++
++Nodes hearing that announcement stopped attempting to claim the medium.
++
++After completing its work, the token holder addressed a token-transfer command to another node. The recipient confirmed ownership by announcing that it now held the token. If no confirmation arrived, the current holder attempted transfer to the next node.
++
++This allowed inactive or failed workstations to be skipped without stopping the network.
++
++## Reconstruction gaps
++
++The timing rules, simultaneous-claim resolution, complete command table, acknowledgement format, error detection, and retransmission policy remain open.
+diff --git a/projects/school-network/users.md b/projects/school-network/users.md
+new file mode 100644
+index 0000000..5b46bfc
+--- /dev/null
++++ b/projects/school-network/users.md
+@@ -0,0 +1,25 @@
++# Users, permissions, and storage
++
++**Evidence status:** user model confirmed from original recollection.
++
++## Storage areas
++
++The teacher machine's hard disk was divided logically into several classes of storage:
++
++- **System and teacher area:** read-only for ordinary student workstations.
++- **Public area:** shared space where users could exchange and modify files.
++- **Private area:** a separate directory belonging to each student identity.
++
++## Identity rather than workstation
++
++Private storage was associated with the student, not the physical XT.
++
++At startup the system asked the user to identify themselves. If the name was unknown, the user could create a password. On later sessions, supplying the same identity and password exposed that user's private directory regardless of which workstation was used.
++
++This made the classroom machines interchangeable while preserving personal work.
++
++## Architectural interpretation
++
++The persistent entity was the user. The workstation was only a temporary access point.
++
++This distinction simplified classroom operation and anticipated a pattern now commonly described as centralised home directories or roaming user storage, although the original design arose directly from practical school requirements rather than from those later terms.
+diff --git a/vault/inbox.md b/vault/inbox.md
+new file mode 100644
+index 0000000..4a5d513
+--- /dev/null
++++ b/vault/inbox.md
+@@ -0,0 +1,33 @@
++# Inbox
++
++Raw recollections are collected here before they are structured.
++
++Entries may be incomplete, contradictory, uncertain, or written in shorthand. That is expected. Do not polish them merely for style.
++
++## School network: recollections captured on 2026-07-20
++
++- Development began in 1989.
++- The first classroom was installed around the middle of 1990.
++- Client machines were IBM PC/XT systems with 640 KB of RAM, one floppy drive, and no hard disk.
++- A teacher's XT or AT 286 had a hard disk and acted as the central machine.
++- The physical network used coaxial cable and supported a total length of up to approximately 100 metres.
++- The adapter was built from inexpensive serial hardware and a programmable 4-bit controller.
++- The adapter had effectively no receive buffer. Missing an interrupt could therefore mean losing a byte.
++- Critical sections in the DOS-side code were evaluated in processor clock cycles.
++- The DOS driver was written in assembly language.
++- The driver intercepted DOS services through INT 21h and made a remote resource appear as a hard disk.
++- A command byte used five high bits for the hardware node number, with zero used as a general or broadcast address, and three low bits for the command.
++- Some commands indicated that an extension byte followed.
++- The extension byte was divided into two four-bit fields: one encoded chunk size, and the other encoded the number of chunks.
++- Access to the shared medium was controlled by a token.
++- A node initially listened to the network. If it heard nothing for a defined interval, it could announce that it held the token.
++- Other nodes hearing that announcement remained passive.
++- The token holder could issue read and write operations with arguments.
++- The token holder could pass the token to an addressed node.
++- If that node did not acknowledge ownership by announcing that it held the token, the current holder tried the next node.
++- Server storage was divided conceptually into read-only system and teacher data, a public exchange area, and private user storage.
++- Private storage belonged to the student identity, not to a particular computer.
++- On startup the system asked who the user was.
++- An unknown user could create a password.
++- On later logins the same user received access to the same private directory from any workstation.
++- Client boot media contained base DOS, the network driver, and several commands that appeared to users as ordinary DOS commands.
+diff --git a/vault/questions.md b/vault/questions.md
+new file mode 100644
+index 0000000..d905364
+--- /dev/null
++++ b/vault/questions.md
+@@ -0,0 +1,41 @@
++# Open questions
++
++These details should not be presented as confirmed until they are remembered or supported by evidence.
++
++## Hardware and physical layer
++
++- What exact UART or serial controller was used: 8250, 16450, 16550, or another device?
++- What exact programmable 4-bit controller was used?
++- What signalling method and bitrate were used on the coaxial cable?
++- How were termination, collision avoidance, and electrical fault conditions handled?
++
++## Command format
++
++- Which nibble of the extension byte encoded chunk size, and which encoded chunk count?
++- How was chunk size derived from its four-bit code?
++- Did a zero nibble represent zero, one, sixteen, or a special case?
++- What were the eight command codes?
++- Was there a checksum or CRC?
++
++## Token protocol
++
++- How long did a node listen before declaring that it held the token?
++- Were startup delays identical, address-dependent, randomised, or otherwise prioritised?
++- How was the next node selected when token transfer failed?
++- Could two nodes ever declare token ownership simultaneously, and how was that resolved?
++- Was the teacher/server node treated specially?
++
++## DOS integration
++
++- Which INT 21h functions were intercepted?
++- Did the system expose one logical drive or several?
++- How were DOS file handles mapped to server-side state?
++- How were directory enumeration, seek, rename, delete, and locking handled?
++- Was DOS 6.22 used from the first installation, or only in a later revision?
++
++## Users and storage
++
++- How were usernames and passwords stored?
++- Were passwords hashed, transformed, or stored directly?
++- How were private directories named?
++- What permissions did the teacher have over student areas?
+diff --git a/vault/timeline.md b/vault/timeline.md
+new file mode 100644
+index 0000000..d1b14f3
+--- /dev/null
++++ b/vault/timeline.md
+@@ -0,0 +1,16 @@
++# Timeline
++
++## 1989
++
++- Work on the standard diskless school computer classroom began.
++- Existing commercial products such as NetWare and LANtastic were considered unsuitable because the client machines had no hard disks and the required hardware was unavailable or unaffordable.
++- Development of a custom physical network, protocol, DOS driver, and user-storage model began.
++
++## 1990
++
++- Around the middle of the year, the first classroom was installed.
++- Further installations followed as the system became a deployed product.
++
++## 2026
++
++- 2026-07-20: reconstruction of the project began from the original author's memories.
